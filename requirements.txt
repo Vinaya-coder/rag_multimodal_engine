@@ -1,0 +1,20 @@
+pydantic
+pymupdf
+protobuf
+langchain-text-splitters
+pgvector
+# Web Framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Database & Migrations
+sqlalchemy
+psycopg2-binary
+alembic
+pydantic-settings
+google-generativeai
+chromadb
+pypdf
+pillow
+moviepy

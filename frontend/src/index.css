@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* If you want that specific background color we discussed: */
+@layer base {
+  body {
+    @apply bg-[#0b0f1a] text-slate-200;
+  }
+}
