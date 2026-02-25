@@ -2,3 +2,12 @@
 /file_vault/raw_uploads/
 /.env
 setup_db.py
+# Ignore temporary audio chunks
+audio_*.webm
+chunk_*.webm
+*.webm
+echo "*.webm" >> .gitignore
+echo "temp_chunks/" >> .gitignore
+# Ignore python cache
+__pycache__/
+*.py[cod]
