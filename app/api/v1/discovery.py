@@ -1,20 +1,22 @@
 import os
 import yaml
 import json
+import asyncio
 import sqlalchemy
 from typing import Union
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from google.genai.errors import ServerError
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.drivers.database import get_db
 from app.logic.embedder import MultimodalEmbedder
-
+import time
 router = APIRouter()
 embedder = MultimodalEmbedder()
 
-# Load rules safely
 try:
     with open("agent_manifest.yaml", "r") as f:
         manifest = yaml.safe_load(f)
@@ -64,7 +66,8 @@ async def semantic_search(q: str, history: str = "", db: Session = Depends(get_d
     Task: 
     Return a JSON list of ALL indices that match the query.
     If there are multiple matches (e.g., multiple images of the same person), include EVERY valid index.
-    Do not limit yourself to just one result.
+    If a user asks for 'fruits' and an item is 'flowers', EXCLUDE IT.
+    Be exhaustive: if there are 5 fruit images, return all 5.
     1. Apply the intent rules. If the user wants a song, ignore images.
     2. Return ONLY a JSON list of indices (e.g., [0, 2, 3]) that strictly match.
     """
@@ -94,26 +97,66 @@ async def semantic_search(q: str, history: str = "", db: Session = Depends(get_d
 
     return {"sources": sources}
 
+MIN_AUDIO_SIZE_BYTES = 1000
+from fastapi.responses import JSONResponse
 
-@router.post("/search_audio")
-async def search_audio(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    temp_path = f"temp_{file.filename}"
-    with open(temp_path, "wb") as buffer:
-        buffer.write(await file.read())
+
+@router.post("/transcribe_chunk")
+async def transcribe_chunk(file: UploadFile = File(...)):
+    # Create the path inside the function so it's unique
+    ts = int(time.time() * 1000)
+    temp_path = f"audio_{ts}.webm"
+    audio_file = None
 
     try:
+        content = await file.read()
+
+        # FIX 1: Lower the threshold. 100kb was skipping 3-second clips.
+        if len(content) < 2000:
+            return JSONResponse(content={"text": ""})
+
+        with open(temp_path, "wb") as buffer:
+            buffer.write(content)
+
+        # FIX 2: Explicitly handle Gemini upload
         audio_file = await embedder.client.aio.files.upload(file=temp_path)
-        resp = await embedder.client.aio.models.generate_content(
-            model=embedder.model_id,
-            contents=[audio_file, "Extract only the main keywords or song title from this audio."],
-            config={"temperature": 0.0}
-        )
-        return await semantic_search(q=resp.text, db=db)
+
+        is_ready = False
+        for _ in range(15):
+            audio_file = await embedder.client.aio.files.get(name=audio_file.name)
+            if audio_file.state.name == "ACTIVE":
+                is_ready = True
+                break
+            await asyncio.sleep(0.5)
+
+        if not is_ready:
+            return JSONResponse(content={"text": ""})
+
+        # FIX 3: Catch Gemini's specific "Internal 500" errors
+        try:
+            resp = await embedder.client.aio.models.generate_content(
+                model=embedder.model_id,
+                contents=[audio_file, "Output only the transcript."]
+            )
+            return JSONResponse(content={"text": resp.text.strip() if resp.text else ""})
+        except Exception as gemini_err:
+            print(f"Gemini processing failed: {gemini_err}")
+            return JSONResponse(content={"text": ""})
+
+    except Exception as e:
+        print(f"Global Fallback Error: {e}")
+        # ALWAYS return a 200 status with valid JSON so React doesn't crash
+        return JSONResponse(content={"text": ""}, status_code=200)
+
     finally:
+        # Cleanup
         if os.path.exists(temp_path):
             os.remove(temp_path)
-
-
+        if audio_file:
+            try:
+                await embedder.client.aio.files.delete(name=audio_file.name)
+            except:
+                pass
 @router.delete("/delete/{filename}")
 async def delete_file(filename: str, db: Session = Depends(get_db)):
     try:

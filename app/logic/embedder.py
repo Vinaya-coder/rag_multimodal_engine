@@ -51,6 +51,9 @@ class MultimodalEmbedder:
         - Do NOT provide a summary.
         - If you don't know, say "Information not found."
         - Maximum 20 words.
+        You are a local vault assistant. Answer the user's question ONLY using the following context. 
+        If the information is not in the context,just search for relatable content if not strictly say "I don't have that information in my vault."
+        Do NOT talk about conferences, organizers, or anything outside the context.
         """
 
         response = await self.client.aio.models.generate_content(

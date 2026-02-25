@@ -71,24 +71,19 @@ async def get_video_chapters(file_path: str, client, model_id):
 
 
 async def process_audio_file(file_path: str, client, model_id):
-    audio_file = await client.aio.files.upload(path=file_path)
+    audio_file = await client.aio.files.upload(file=file_path)
 
-    prompt = """
-    Summarize this audio or identify the sound.
-    Return JSON: {
-      "type": "song" | "humming" | "speech",
-      "primary_subject": "title/artist or main speaker",
-      "auditory_details": "instruments, tempo, or tone",
-      "verifiable_content": "specific lyrics or melodic phrases"
-    }
-    """
+    # 1. Define the prompt clearly
+    prompt = """Transcribe this audio clip word-for-word.
+Return ONLY the spoken text.
+If nothing understandable is spoken, return an empty string.
+"""
+
 
     response = await client.aio.models.generate_content(
         model=model_id,
         contents=[audio_file, prompt],
-        config={
-            "temperature": 0.0,
-            "response_mime_type": "application/json"
-        }
+        config={"temperature":0.0}
     )
+    print("TRANSCRIPT:", response.text)
     return response.text
